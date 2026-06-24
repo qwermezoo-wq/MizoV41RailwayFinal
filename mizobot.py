@@ -2,8 +2,8 @@ import os, time, requests, json, hmac, hashlib, base64, threading
 from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-API_KEY    = "004257bb-c2b0-4cb9-9305-90decb763ad2"
-SECRET_KEY = "73D4E2BF2A67B38896EC39A50EFDA15E"
+API_KEY    = "f784f3d4-5592-4eec-8f38-2cab50727421"
+SECRET_KEY = "D765DD0CCDBD8B36F33B16963A1CE5E8"
 PASSPHRASE = "Mizo@2026"
 BASE_URL   = "https://www.okx.com"
 
