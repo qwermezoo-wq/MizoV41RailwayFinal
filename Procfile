@@ -1,1 +1,1 @@
-worker: python mizobot.py
+web: python mizobot.py
