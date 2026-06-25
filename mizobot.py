@@ -244,7 +244,7 @@ def demo_trade():
     if price<=0:
         tg("❌ فشل جلب سعر BTC"); return
     tg("💰 سعر BTC الحالي: "+"%.2f"%price+"$")
-    oid,qty=buy_spot("BTC-USDT",11.0)
+    oid,qty=buy_spot("BTC-USDT",0.00018)
     if oid:
         tg("✅ <b>تم فتح الصفقة التجريبية!</b>\n"
            "🟢 Long BTC-USDT Spot\n"
@@ -302,7 +302,11 @@ while True:
                 if sig and len(positions)<MAX_OPEN and not already and opened_today<allowed_new_today:
                     price=get_price(sym)
                     if price<=0: continue
-                    oid,qty=buy_spot(sym,FIXED_RISK)
+                    dist=abs(sig["entry"]-sig["stop"])
+                    if dist<=0: continue
+                    qty=round(FIXED_RISK/dist,6)
+                    if qty*get_price(sym)<1: continue
+                    oid,qty=buy_spot(sym,qty)
                     if oid:
                         positions.append({"sym":sym,"dir":sig["dir"],"entry":price,
                                           "stop":sig["stop"],"target":sig["target"],"qty":qty})
