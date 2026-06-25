@@ -17,21 +17,27 @@ SYMBOLS = [
 ]
 
 BINANCE_MAP = {
-    "BTC-USDT-SWAP":"BTCUSDT","ETH-USDT-SWAP":"ETHUSDT",
-    "SOL-USDT-SWAP":"SOLUSDT","ADA-USDT-SWAP":"ADAUSDT",
-    "AVAX-USDT-SWAP":"AVAXUSDT","RUNE-USDT-SWAP":"RUNEUSDT",
-    "TRX-USDT-SWAP":"TRXUSDT"
+    "BTC-USDT-SWAP":  "BTCUSDT",
+    "ETH-USDT-SWAP":  "ETHUSDT",
+    "SOL-USDT-SWAP":  "SOLUSDT",
+    "ADA-USDT-SWAP":  "ADAUSDT",
+    "AVAX-USDT-SWAP": "AVAXUSDT",
+    "RUNE-USDT-SWAP": "RUNEUSDT",
+    "TRX-USDT-SWAP":  "TRXUSDT",
 }
 
 CAPITAL          = 5000.0
-FIXED_RISK       = 100.0
+FIXED_RISK       = 50.0
 STOP_MULT        = 2.0
 TGT_MULT         = 4.0
 MAX_OPEN         = 4
 MAX_DAILY_TRADES = 4
+VOL_MULT         = 1.5
 ADX_MIN          = 20
 LOOKBACK         = 20
 EMA_PERIOD       = 50
+SLIPPAGE         = 0.0003
+COMMISSION       = 0.0004
 MAX_DAILY_LOSS   = 250.0
 MAX_TOTAL_LOSS   = 500.0
 MIN_EQUITY       = CAPITAL - MAX_TOTAL_LOSS
@@ -90,9 +96,8 @@ def okx_sign(ts_str, method, path, body_str=""):
     return base64.b64encode(mac).decode()
 
 def okx_headers(method, path, body_str=""):
-    t = get_okx_time()
-    ts = datetime.utcfromtimestamp(t).strftime("%Y-%m-%dT%H:%M:%S.") + \
-         str(int((t % 1) * 1000)).zfill(3) + "Z"
+    t  = get_okx_time()
+    ts = datetime.utcfromtimestamp(t).strftime("%Y-%m-%dT%H:%M:%S.") + str(int((t % 1) * 1000)).zfill(3) + "Z"
     sig = okx_sign(ts, method, path, body_str)
     return {
         "OK-ACCESS-KEY":        API_KEY,
@@ -113,12 +118,7 @@ def okx_get(path):
 def okx_post(path, body_dict):
     body_str = json.dumps(body_dict)
     try:
-        r = requests.post(
-            BASE_URL + path,
-            headers=okx_headers("POST", path, body_str),
-            data=body_str,
-            timeout=15
-        )
+        r = requests.post(BASE_URL + path, headers=okx_headers("POST", path, body_str), data=body_str, timeout=15)
         return r.json()
     except Exception as e:
         return {"code": "-1", "msg": str(e)}
@@ -158,30 +158,28 @@ def get_price(sym):
     return 0.0
 
 def place_order(sym, side, sz):
-    body = {
+    r = okx_post("/api/v5/trade/order", {
         "instId":  sym,
         "tdMode":  "cross",
         "side":    side,
         "ordType": "market",
         "sz":      str(sz),
         "posSide": "long" if side == "buy" else "short",
-    }
-    r = okx_post("/api/v5/trade/order", body)
+    })
     if r.get("code") == "0":
         return r["data"][0].get("ordId", "OK")
-    tg("⚠️ فشل " + side + " " + sym + ": " + str(r.get("msg","")) + " | كود: " + str(r.get("code","")))
+    tg("⚠️ فشل " + side + " " + sym + ": " + str(r.get("msg","")) + " | " + str(r.get("data","")))
     return None
 
 def close_order(sym, side, sz):
-    body = {
+    r = okx_post("/api/v5/trade/order", {
         "instId":  sym,
         "tdMode":  "cross",
         "side":    side,
         "ordType": "market",
         "sz":      str(sz),
         "posSide": "short" if side == "buy" else "long",
-    }
-    r = okx_post("/api/v5/trade/order", body)
+    })
     return r.get("code") == "0"
 
 def check_risk():
@@ -197,12 +195,12 @@ def check_risk():
             tg("🌅 يوم جديد | " + str(carried) + " مفتوحة | مسموح " + str(allowed_new_today) + " جديدة")
     if usdt - daily_start_eq <= -MAX_DAILY_LOSS:
         stopped_out = True
-        stop_reason = "تجاوز حد الخسارة اليومي"
+        stop_reason = "تجاوز حد الخسارة اليومي 250$"
         tg("⛔ " + stop_reason)
         return False
     if usdt <= MIN_EQUITY:
         stopped_out = True
-        stop_reason = "تجاوز حد الخسارة التراكمي"
+        stop_reason = "تجاوز حد الخسارة التراكمي 500$"
         tg("⛔ " + stop_reason)
         return False
     return True
@@ -220,7 +218,7 @@ def calc_atr(h, l, c, period=14):
     return sum(trs[-period:]) / period
 
 def calc_adx(h, l, c, period=14):
-    if len(c) < period * 2 + 1: return 0.0
+    if len(c) < period*2+1: return 0.0
     h2=h[-30:]; l2=l[-30:]; c2=c[-30:]
     trs=[max(h2[i]-l2[i],abs(h2[i]-c2[i-1]),abs(l2[i]-c2[i-1])) for i in range(1,len(h2))]
     pdm=[max(0,h2[i]-h2[i-1]) if h2[i]-h2[i-1]>l2[i-1]-l2[i] else 0 for i in range(1,len(h2))]
@@ -257,20 +255,24 @@ def analyze(sym):
     adx=calc_adx(hi[:-1],lo[:-1],cl[:-1],14)
     if adx<ADX_MIN: return None
     avg_vol=sum(vl[-LOOKBACK-2:-2])/LOOKBACK
-    if vl[-2]<avg_vol*1.5: return None
+    if vl[-2]<avg_vol*VOL_MULT: return None
     direction=None; entry_price=0.0
-    if hi[-2]>highest: direction="buy";  entry_price=highest
-    elif lo[-2]<lowest: direction="sell"; entry_price=lowest
+    if hi[-2]>highest:   direction="Long";  entry_price=highest
+    elif lo[-2]<lowest:  direction="Short"; entry_price=lowest
     if not direction: return None
     ema50=calc_ema(cl[:-1],EMA_PERIOD)
     if ema50<=0: return None
     trend="Bull" if cl[-2]>ema50 else "Bear"
-    if direction=="buy"  and trend!="Bull": return None
-    if direction=="sell" and trend!="Bear": return None
-    entry = entry_price*1.0003 if direction=="buy" else entry_price*0.9997
-    stop  = entry-atr*STOP_MULT if direction=="buy" else entry+atr*STOP_MULT
-    target= entry+atr*TGT_MULT  if direction=="buy" else entry-atr*TGT_MULT
-    return {"dir":direction,"entry":entry,"stop":stop,"target":target,"atr":atr,"adx":round(adx,1)}
+    if direction=="Long"  and trend!="Bull": return None
+    if direction=="Short" and trend!="Bear": return None
+    entry=entry_price*(1+SLIPPAGE) if direction=="Long" else entry_price*(1-SLIPPAGE)
+    stop=entry-atr*STOP_MULT if direction=="Long" else entry+atr*STOP_MULT
+    target=entry+atr*TGT_MULT if direction=="Long" else entry-atr*TGT_MULT
+    dist=abs(entry-stop)
+    if dist<=0: return None
+    qty=round(FIXED_RISK/dist,6)
+    if qty*entry<10: return None
+    return {"dir":direction,"entry":entry,"stop":stop,"target":target,"atr":atr,"adx":round(adx,1),"qty":qty}
 
 def send_report(cycle):
     if stopped_out:
@@ -279,44 +281,79 @@ def send_report(cycle):
     wr=(TOTAL_WINS/TOTAL_TRADES*100) if TOTAL_TRADES>0 else 0.0
     now=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     msg  = "📊 <b>OKX V41 #" + str(cycle) + "</b> | " + now + "\n"
+    msg += "━━━━━━━━━━━━━━━━━\n"
     msg += "💰 الرصيد: <b>" + "%.2f"%usdt + "$</b>\n"
-    msg += "📈 اليوم: <b>" + "%+.2f"%(usdt-daily_start_eq) + "$</b> (حد: " + "%.0f"%MAX_DAILY_LOSS + "$)\n"
-    msg += "📊 الكلي: <b>" + "%+.2f"%(usdt-CAPITAL) + "$</b> (حد: " + "%.0f"%MAX_TOTAL_LOSS + "$)\n"
-    msg += "📋 " + str(TOTAL_TRADES) + " صفقة | ✅" + str(TOTAL_WINS) + " ❌" + str(TOTAL_LOSSES) + " | WR:" + "%.1f"%wr + "%\n"
-    msg += "📂 مفتوحة: " + str(len(positions)) + "/" + str(MAX_OPEN) + " | مسموح: " + str(allowed_new_today)
+    msg += "📈 اليوم: <b>" + "%+.2f"%(usdt-daily_start_eq) + "$</b> (حد: 250$)\n"
+    msg += "📊 الكلي: <b>" + "%+.2f"%(usdt-CAPITAL) + "$</b> (حد: 500$)\n"
+    msg += "━━━━━━━━━━━━━━━━━\n"
+    msg += "📋 إجمالي: " + str(TOTAL_TRADES) + " | ✅ " + str(TOTAL_WINS) + " | ❌ " + str(TOTAL_LOSSES) + "\n"
+    msg += "🎯 WR: " + "%.1f"%wr + "% | 📂 مفتوحة: " + str(len(positions)) + "/" + str(MAX_OPEN) + "\n"
+    msg += "💡 مسموح اليوم: " + str(allowed_new_today) + " صفقة\n"
+    msg += "🛡️ مخاطرة: 50$ | يومي: 250$ | تراكمي: 500$"
     if positions:
-        msg += "\n━━━━━━━━━━━━━━━━━"
+        msg += "\n━━━━━━━━━━━━━━━━━\n📌 <b>مفتوحة:</b>"
         for p in positions:
             cur=get_price(p["sym"])
             if cur>0:
-                unr=(cur-p["entry"])*p["qty"] if p["dir"]=="buy" else (p["entry"]-cur)*p["qty"]
+                unr=(cur-p["entry"])*p["qty"] if p["dir"]=="Long" else (p["entry"]-cur)*p["qty"]
                 icon="🟢" if unr>=0 else "🔴"
-                msg += "\n"+icon+" "+("Long" if p["dir"]=="buy" else "Short")+" "+p["sym"].replace("-USDT-SWAP","")
-                msg += " | "+"%.4f"%p["entry"]+" → "+"%.4f"%cur+" | "+"%+.2f"%unr+"$"
+                msg += "\n" + icon + " " + ("Long" if p["dir"]=="Long" else "Short")
+                msg += " " + p["sym"].replace("-USDT-SWAP","")
+                msg += " | دخول:" + "%.4f"%p["entry"]
+                msg += " | حالي:" + "%.4f"%cur
+                msg += " | " + "%+.2f"%unr + "$"
     tg(msg)
 
 def run_demo():
-    time.sleep(30)
-    tg("🧪 <b>اختبار الاتصال بـ OKX...</b>")
-    r = okx_get("/api/v5/account/balance?ccy=USDT")
-    if r.get("code") == "0":
-        bal = CAPITAL
-        try:
-            for d in r["data"][0]["details"]:
-                if d["ccy"] == "USDT":
-                    bal = float(d["availBal"])
-        except:
-            pass
-        tg("✅ <b>اتصال OKX ناجح!</b>\n💰 الرصيد التجريبي: " + "%.2f"%bal + " USDT\n🚀 البوت يعمل ويبحث عن إشارات...")
+    time.sleep(60)
+    tg("🧪 <b>صفقة تجريبية — BTC-USDT-SWAP</b>\nجاري الفتح...")
+    price = get_price("BTC-USDT-SWAP")
+    if price <= 0:
+        tg("❌ فشل جلب سعر BTC")
+        return
+    oid = place_order("BTC-USDT-SWAP", "buy", 1)
+    if oid:
+        tg(
+            "✅ <b>تم فتح الصفقة التجريبية!</b>\n"
+            "🟢 Long BTC-USDT-SWAP\n"
+            "📊 سعر الدخول: " + "%.2f"%price + "$\n"
+            "📦 الكمية: 1 عقد\n"
+            "⏳ سيتم الإغلاق بعد 3 دقائق..."
+        )
+        time.sleep(180)
+        exit_price = get_price("BTC-USDT-SWAP")
+        closed = close_order("BTC-USDT-SWAP", "sell", 1)
+        if closed:
+            pnl = exit_price - price if exit_price > 0 else 0
+            tg(
+                "✅ <b>تم إغلاق الصفقة التجريبية!</b>\n"
+                "📊 دخول: " + "%.2f"%price + "$\n"
+                "📊 خروج: " + "%.2f"%exit_price + "$\n"
+                "💰 فرق السعر: " + "%+.2f"%pnl + "$\n"
+                "🚀 البوت جاهز للتداول الحقيقي!"
+            )
+        else:
+            tg("⚠️ فشل إغلاق الصفقة التجريبية")
     else:
-        tg("❌ فشل الاتصال بـ OKX\nالخطأ: " + str(r.get("msg","")) + "\nكود: " + str(r.get("code","")))
+        tg("❌ فشل فتح الصفقة التجريبية")
 
 usdt = get_balance()
-tg("🚀 <b>OKX V41 Bot Active</b>\n💰 رأس المال: " + "%.2f"%usdt + "$\n📊 7 عملات | فريم 4H\n🛡️ حد يومي: 250$ | تراكمي: 500$")
+tg(
+    "🚀 <b>OKX V41+Trend — تشغيل</b>\n"
+    "━━━━━━━━━━━━━━━━━\n"
+    "💰 الرصيد التجريبي: <b>" + "%.2f"%usdt + "$ USDT</b>\n"
+    "📊 7 عملات | فريم 4H | Breakout + EMA50 + ADX\n"
+    "🛡️ مخاطرة ثابتة: 50$ | يومي: 250$ | تراكمي: 500$\n"
+    "🧠 أقصى 4 صفقات يومياً\n"
+    "🔄 يفحص كل دقيقة | تقرير كل 15 دقيقة\n"
+    "🧪 صفقة تجريبية ستفتح بعد 60 ثانية..."
+)
+
 threading.Thread(target=run_demo, daemon=True).start()
 
 last_close = {}
 cycle = 0
+
 while True:
     try:
         if stopped_out:
@@ -324,59 +361,92 @@ while True:
             continue
         cycle += 1
         check_risk()
+
         for sym in SYMBOLS:
             if stopped_out: break
             try:
-                bn=BINANCE_MAP.get(sym,"")
+                bn = BINANCE_MAP.get(sym, "")
                 if not bn: continue
-                r=requests.get("https://api.binance.com/api/v3/klines?symbol="+bn+"&interval=4h&limit=2",timeout=10)
-                if r.status_code!=200: continue
-                data=r.json()
-                if len(data)<2: continue
-                ct=data[-2][6]
-                if sym in last_close and ct==last_close[sym]: continue
-                last_close[sym]=ct
-                sig=analyze(sym)
-                already=any(p["sym"]==sym for p in positions)
-                if sig and len(positions)<MAX_OPEN and not already and opened_today<allowed_new_today:
-                    dist=abs(sig["entry"]-sig["stop"])
-                    if dist<=0: continue
-                    risk_amt=min(FIXED_RISK,usdt*0.01)
-                    qty=max(1,round(risk_amt/dist))
-                    oid=place_order(sym,sig["dir"],qty)
+                r = requests.get(
+                    "https://api.binance.com/api/v3/klines?symbol=" + bn + "&interval=4h&limit=2",
+                    timeout=10
+                )
+                if r.status_code != 200: continue
+                data = r.json()
+                if len(data) < 2: continue
+                ct = data[-2][6]
+                if sym in last_close and ct == last_close[sym]: continue
+                last_close[sym] = ct
+                sig = analyze(sym)
+                already = any(p["sym"] == sym for p in positions)
+                if sig and len(positions) < MAX_OPEN and not already and opened_today < allowed_new_today:
+                    price = get_price(sym)
+                    if price <= 0: continue
+                    oid = place_order(sym, "buy" if sig["dir"]=="Long" else "sell", sig["qty"])
                     if oid:
-                        positions.append({"sym":sym,"dir":sig["dir"],"entry":sig["entry"],"stop":sig["stop"],"target":sig["target"],"qty":qty})
-                        opened_today+=1
-                        tg("🔔 <b>صفقة جديدة V41</b>\n"+("🟢 Long " if sig["dir"]=="buy" else "🔴 Short ")+sym+"\n📍 دخول: "+"%.4f"%sig["entry"]+"\n🛑 وقف: "+"%.4f"%sig["stop"]+"\n🎯 هدف: "+"%.4f"%sig["target"]+"\nADX: "+str(sig["adx"]))
+                        positions.append({
+                            "sym":    sym,
+                            "dir":    sig["dir"],
+                            "entry":  price,
+                            "stop":   sig["stop"],
+                            "target": sig["target"],
+                            "qty":    sig["qty"]
+                        })
+                        opened_today += 1
+                        exp_p = round(abs(sig["target"]-price)*sig["qty"],2)
+                        exp_l = round(abs(price-sig["stop"])*sig["qty"],2)
+                        tg(
+                            "🔔 <b>صفقة جديدة V41!</b>\n"
+                            + ("🟢 Long " if sig["dir"]=="Long" else "🔴 Short ")
+                            + "<b>" + sym + "</b>\n"
+                            "━━━━━━━━━━━━━━━━━\n"
+                            "📍 دخول: <b>" + "%.4f"%price + "$</b>\n"
+                            "🛑 وقف: <b>" + "%.4f"%sig["stop"] + "$</b>\n"
+                            "🎯 هدف: <b>" + "%.4f"%sig["target"] + "$</b>\n"
+                            "📈 ربح متوقع: <b>+" + "%.2f"%exp_p + "$</b>\n"
+                            "📉 خسارة متوقعة: <b>-" + "%.2f"%exp_l + "$</b>\n"
+                            "📦 كمية: " + "%.5f"%sig["qty"] + " | ADX: " + str(sig["adx"])
+                        )
             except:
                 pass
+
         for pos in list(positions):
             if stopped_out: break
-            price=get_price(pos["sym"])
-            if price<=0: continue
-            hit=None
-            if pos["dir"]=="buy":
-                if price<=pos["stop"]: hit=pos["stop"]
-                elif price>=pos["target"]: hit=pos["target"]
+            price = get_price(pos["sym"])
+            if price <= 0: continue
+            hit = None
+            if pos["dir"] == "Long":
+                if price <= pos["stop"]:   hit = pos["stop"]
+                elif price >= pos["target"]: hit = pos["target"]
             else:
-                if price>=pos["stop"]: hit=pos["stop"]
-                elif price<=pos["target"]: hit=pos["target"]
+                if price >= pos["stop"]:   hit = pos["stop"]
+                elif price <= pos["target"]: hit = pos["target"]
             if hit:
-                TOTAL_TRADES+=1
-                cs="sell" if pos["dir"]=="buy" else "buy"
-                close_order(pos["sym"],cs,pos["qty"])
-                pnl=(hit-pos["entry"])*pos["qty"] if pos["dir"]=="buy" else (pos["entry"]-hit)*pos["qty"]
-                net=pnl-(pos["entry"]+hit)*pos["qty"]*0.0004
+                TOTAL_TRADES += 1
+                cs = "sell" if pos["dir"]=="Long" else "buy"
+                close_order(pos["sym"], cs, pos["qty"])
+                pnl=(hit-pos["entry"])*pos["qty"] if pos["dir"]=="Long" else (pos["entry"]-hit)*pos["qty"]
+                fee=(pos["entry"]+hit)*pos["qty"]*COMMISSION
+                net=pnl-fee
                 usdt+=net; TOTAL_PNL+=net
                 if net>0: TOTAL_WINS+=1
                 else: TOTAL_LOSSES+=1
                 positions.remove(pos)
-                tg(("✅ ربح" if net>0 else "❌ خسارة")+" | "+("Long" if pos["dir"]=="buy" else "Short")+" "+pos["sym"].replace("-USDT-SWAP","")+" | "+"%+.2f"%net+"$ | 💼 "+"%.2f"%usdt+"$")
+                tg(
+                    ("✅ ربح" if net>0 else "❌ خسارة") + " | "
+                    + ("Long" if pos["dir"]=="Long" else "Short") + " "
+                    + pos["sym"].replace("-USDT-SWAP","") + "\n"
+                    "📊 دخول: " + "%.4f"%pos["entry"] + "\n"
+                    "📊 خروج: " + "%.4f"%hit + "\n"
+                    "💰 صافي: " + "%+.2f"%net + "$ | رصيد: " + "%.2f"%usdt + "$"
+                )
                 check_risk()
-        if cycle%15==0:
+
+        if cycle % 15 == 0:
             send_report(cycle)
+
     except Exception as e:
-        tg("⚠️ خطأ: "+str(e)[:150])
+        tg("⚠️ خطأ: " + str(e)[:150])
         time.sleep(30)
         continue
     time.sleep(60)
