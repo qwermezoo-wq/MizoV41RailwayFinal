@@ -11,19 +11,19 @@ TG_TOKEN = "8887593469:AAFKDCeleWxHuBC4p6q-vJQMTJ5V1ff0Lts"
 TG_CHAT  = "5230956729"
 
 SYMBOLS = [
-    "BTC-USDT-SWAP","ETH-USDT-SWAP","SOL-USDT-SWAP",
-    "ADA-USDT-SWAP","AVAX-USDT-SWAP","RUNE-USDT-SWAP",
-    "TRX-USDT-SWAP"
+    "BTC-USDT","ETH-USDT","SOL-USDT",
+    "ADA-USDT","AVAX-USDT","RUNE-USDT",
+    "TRX-USDT"
 ]
 
 BINANCE_MAP = {
-    "BTC-USDT-SWAP":  "BTCUSDT",
-    "ETH-USDT-SWAP":  "ETHUSDT",
-    "SOL-USDT-SWAP":  "SOLUSDT",
-    "ADA-USDT-SWAP":  "ADAUSDT",
-    "AVAX-USDT-SWAP": "AVAXUSDT",
-    "RUNE-USDT-SWAP": "RUNEUSDT",
-    "TRX-USDT-SWAP":  "TRXUSDT",
+    "BTC-USDT":  "BTCUSDT",
+    "ETH-USDT":  "ETHUSDT",
+    "SOL-USDT":  "SOLUSDT",
+    "ADA-USDT":  "ADAUSDT",
+    "AVAX-USDT": "AVAXUSDT",
+    "RUNE-USDT": "RUNEUSDT",
+    "TRX-USDT":  "TRXUSDT",
 }
 
 CAPITAL          = 5000.0
@@ -160,11 +160,11 @@ def get_price(sym):
 def place_order(sym, side, sz):
     r = okx_post("/api/v5/trade/order", {
         "instId":  sym,
-        "tdMode":  "cross",
+        "tdMode":  "cash",
         "side":    side,
         "ordType": "market",
         "sz":      str(sz),
-        "posSide": "long" if side == "buy" else "short",
+        
     })
     if r.get("code") == "0":
         return r["data"][0].get("ordId", "OK")
@@ -174,11 +174,11 @@ def place_order(sym, side, sz):
 def close_order(sym, side, sz):
     r = okx_post("/api/v5/trade/order", {
         "instId":  sym,
-        "tdMode":  "cross",
+        "tdMode":  "cash",
         "side":    side,
         "ordType": "market",
         "sz":      str(sz),
-        "posSide": "short" if side == "buy" else "long",
+        
     })
     return r.get("code") == "0"
 
@@ -298,7 +298,7 @@ def send_report(cycle):
                 unr=(cur-p["entry"])*p["qty"] if p["dir"]=="Long" else (p["entry"]-cur)*p["qty"]
                 icon="🟢" if unr>=0 else "🔴"
                 msg += "\n" + icon + " " + ("Long" if p["dir"]=="Long" else "Short")
-                msg += " " + p["sym"].replace("-USDT-SWAP","")
+                msg += " " + p["sym"].replace("-USDT","")
                 msg += " | دخول:" + "%.4f"%p["entry"]
                 msg += " | حالي:" + "%.4f"%cur
                 msg += " | " + "%+.2f"%unr + "$"
@@ -306,23 +306,23 @@ def send_report(cycle):
 
 def run_demo():
     time.sleep(60)
-    tg("🧪 <b>صفقة تجريبية — BTC-USDT-SWAP</b>\nجاري الفتح...")
-    price = get_price("BTC-USDT-SWAP")
+    tg("🧪 <b>صفقة تجريبية — BTC-USDT</b>\nجاري الفتح...")
+    price = get_price("BTC-USDT")
     if price <= 0:
         tg("❌ فشل جلب سعر BTC")
         return
-    oid = place_order("BTC-USDT-SWAP", "buy", 1)
+    oid = place_order("BTC-USDT", "buy", 1)
     if oid:
         tg(
             "✅ <b>تم فتح الصفقة التجريبية!</b>\n"
-            "🟢 Long BTC-USDT-SWAP\n"
+            "🟢 Long BTC-USDT\n"
             "📊 سعر الدخول: " + "%.2f"%price + "$\n"
             "📦 الكمية: 1 عقد\n"
             "⏳ سيتم الإغلاق بعد 3 دقائق..."
         )
         time.sleep(180)
-        exit_price = get_price("BTC-USDT-SWAP")
-        closed = close_order("BTC-USDT-SWAP", "sell", 1)
+        exit_price = get_price("BTC-USDT")
+        closed = close_order("BTC-USDT", "sell", 1)
         if closed:
             pnl = exit_price - price if exit_price > 0 else 0
             tg(
@@ -435,7 +435,7 @@ while True:
                 tg(
                     ("✅ ربح" if net>0 else "❌ خسارة") + " | "
                     + ("Long" if pos["dir"]=="Long" else "Short") + " "
-                    + pos["sym"].replace("-USDT-SWAP","") + "\n"
+                    + pos["sym"].replace("-USDT","") + "\n"
                     "📊 دخول: " + "%.4f"%pos["entry"] + "\n"
                     "📊 خروج: " + "%.4f"%hit + "\n"
                     "💰 صافي: " + "%+.2f"%net + "$ | رصيد: " + "%.2f"%usdt + "$"
