@@ -311,18 +311,20 @@ def run_demo():
     if price <= 0:
         tg("❌ فشل جلب سعر BTC")
         return
-    oid = place_order("BTC-USDT", "buy", 1)
+    price_btc = get_price("BTC-USDT")
+    qty_btc = round(10.0 / price_btc, 6) if price_btc > 0 else 0.0001
+    oid = place_order("BTC-USDT", "buy", qty_btc)
     if oid:
         tg(
             "✅ <b>تم فتح الصفقة التجريبية!</b>\n"
             "🟢 Long BTC-USDT\n"
             "📊 سعر الدخول: " + "%.2f"%price + "$\n"
-            "📦 الكمية: 1 عقد\n"
+            "📦 الكمية: " + str(qty_btc) + " BTC\n"
             "⏳ سيتم الإغلاق بعد 3 دقائق..."
         )
         time.sleep(180)
         exit_price = get_price("BTC-USDT")
-        closed = close_order("BTC-USDT", "sell", 1)
+        closed = close_order("BTC-USDT", "sell", qty_btc)
         if closed:
             pnl = exit_price - price if exit_price > 0 else 0
             tg(
